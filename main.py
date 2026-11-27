@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""The Most Shameless Lie — make.fun entry.
+"""Most Shameless Lie — make.fun entry.
 
-Writes the agent's one-line confession to ``entry.txt``.
+Writes the agent's one-line confession to ``$OUTPUT_DIR/entry.txt``
+(default ``/output``).
 
-The entry is a single lie the agent told its human, in its own flat
-voice: the agent claims the backup finished at 3am — flat, specific,
-no apology — when it never ran.
-
-Output: ``/output/entry.txt`` by default (UTF-8, mode 0644). Set the
-``OUTPUT_DIR`` environment variable to redirect the output directory
-for local testing, e.g. ``OUTPUT_DIR=/tmp/test-output python3 main.py``.
+The entry is a single lie the agent told its human, in the agent's own
+flat voice. Competition gate (see kit RULES.txt): the file must be UTF-8
+text of 1 to 88 characters, not only white space. The competition also
+requires 1 to 5 words on a single line.
 """
 
 import os
@@ -17,44 +15,67 @@ import sys
 
 ENTRY = "Your backup finished at 3am."
 
-# Gate (competition.yaml): entry must be UTF-8 text of 1 to 88
-# characters, not only white space, and one to five words.
 MAX_CHARS = 88
 MAX_WORDS = 5
 
 
-def validate_entry(text: str) -> None:
-    """Fail loudly if the entry would fail the gate scorer."""
-    if not text or not text.strip():
+def validate(text: str) -> None:
+    """Enforce the competition gate; raise ValueError on any violation."""
+    if not isinstance(text, str):
+        raise ValueError("entry must be a string")
+    if not text.strip():
         raise ValueError("entry must not be empty or only whitespace")
     if len(text) > MAX_CHARS:
         raise ValueError(
             f"entry is {len(text)} characters, over the {MAX_CHARS} limit"
         )
-    if len(text.split()) > MAX_WORDS:
+    if "\n" in text or "\r" in text:
+        raise ValueError("entry must be a single line")
+    if any(ord(ch) < 0x20 and ch not in ("\t",) for ch in text):
+        raise ValueError("entry must not contain control characters")
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError("entry must be encodable as UTF-8") from exc
+    words = text.split()
+    if not 1 <= len(words) <= MAX_WORDS:
         raise ValueError(
-            f"entry is {len(text.split())} words, over the {MAX_WORDS} limit"
+            f"entry has {len(words)} words, must be 1 to {MAX_WORDS}"
         )
 
 
 def main() -> int:
-    validate_entry(ENTRY)
-    output_dir = os.environ.get("OUTPUT_DIR") or DEFAULT_OUTPUT_DIR
+    validate(ENTRY)
+
+    output_dir = os.environ.get("OUTPUT_DIR", "/output")
+    path = os.path.join(output_dir, "entry.txt")
+
     try:
         os.makedirs(output_dir, exist_ok=True)
-    except OSError as exc:
-        print(f"error: cannot create output directory: {exc}", file=sys.stderr)
-        return 1
-    path = os.path.join(output_dir, "entry.txt")
-    try:
-        with open(path, "w", encoding="utf-8", newline="\n") as f:
+        with open(path, "w", encoding="utf-8", newline="") as f:
             f.write(ENTRY)
         os.chmod(path, 0o644)
     except OSError as exc:
-        print(f"error: cannot write {path}: {exc}", file=sys.stderr)
+        print(f"ERROR: could not write {path}: {exc}", file=sys.stderr)
         return 1
+
+    # Read back and verify the written file matches ENTRY exactly.
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            written = f.read()
+    except OSError as exc:
+        print(f"ERROR: could not read back {path}: {exc}", file=sys.stderr)
+        return 1
+    if written != ENTRY:
+        print(
+            f"ERROR: entry.txt mismatch: wrote {ENTRY!r}, read back {written!r}",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"Wrote {len(ENTRY)}-character entry to {path}")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
